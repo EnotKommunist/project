@@ -41,36 +41,6 @@ def terminate():
     sys.exit()
 
 
-def start_screen():
-    intro_text = ["ЗАСТАВКА", "",
-                  "Правила игры",
-                  "Если в правилах несколько строк,",
-                  "приходится выводить их построчно"]
-
-    fon = pygame.transform.scale(load_image('fon.jpg'), (WIDTH, HEIGHT))
-    screen.blit(fon, (0, 0))
-    font = pygame.font.Font(None, 30)
-    text_coord = 50
-    for line in intro_text:
-        string_rendered = font.render(line, 1, pygame.Color('black'))
-        intro_rect = string_rendered.get_rect()
-        text_coord += 10
-        intro_rect.top = text_coord
-        intro_rect.x = 10
-        text_coord += intro_rect.height
-        screen.blit(string_rendered, intro_rect)
-
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                terminate()
-            elif event.type == pygame.KEYDOWN or \
-                    event.type == pygame.MOUSEBUTTONDOWN:
-                return  # начинаем игру
-        pygame.display.flip()
-        clock.tick(FPS)
-
-
 class Tile(pygame.sprite.Sprite):
     def __init__(self, tile_type, pos_x, pos_y):
 
@@ -156,31 +126,21 @@ class Enemy(pygame.sprite.Sprite):
         self.pos_y = pos_y
         self.storona = "l"
         self.rect = self.image.get_rect().move(
-            tile_width * self.pos_x + 15, tile_height * self.pos_y + 5)
+            tile_width * self.pos_x, tile_height * self.pos_y)
         self.pos = (self.pos_x, self.pos_y)
-        self.count = 0
 
     def move(self, x, y):
         level_map[self.pos[1]][self.pos[0]] = "."
         self.pos_x = x
         self.pos_y = y
-        storona = random.randint(0, 3)
-        if storona == 0:
-            if level_map[y][x + 1] == '.':
-                self.pos_x += 1
-        elif storona == 1:
-            if level_map[y][x - 1] == '.':
-                self.pos_x -= 1
-        elif storona == 2:
-            if level_map[y + 1][x] == '.':
-                self.pos_y += 1
-        elif storona == 3:
-            if level_map[y - 1][x] == '.':
-                self.pos_y -= 1
         self.rect = self.image.get_rect().move(
             tile_width * self.pos_x, tile_height * self.pos_y)
         self.pos = (self.pos_x, self.pos_y)
         level_map[self.pos[1]][self.pos[0]] = "&"
+
+    def brain(self):
+        action = random.randint(0, 4)
+        return action
 
     def shoot(self, storona):
         bullet = Bullet(self.rect.centerx, self.rect.top + 30, storona, "enemy")
@@ -272,7 +232,6 @@ enemies_image = load_image("enemy.png")
 
 tile_width = tile_height = 50
 
-start_screen()
 camera = Camera()
 level_map = load_level("map.map")
 player, max_x, max_y = generate_level(level_map)
@@ -286,26 +245,44 @@ while running:
             running = False
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
-                player.shoot(storona)
+                player.shoot(storona_d)
             if event.key == pygame.K_w:
                 move(player, "up")
-                storona = 'u'
+                storona_d = 'u'
             elif event.key == pygame.K_s:
                 move(player, "down")
-                storona = 'd'
+                storona_d = 'd'
             elif event.key == pygame.K_a:
                 move(player, "left")
-                storona = 'l'
+                storona_d = 'l'
             elif event.key == pygame.K_d:
                 move(player, "right")
-                storona = 'r'
+                storona_d = 'r'
 
     # каждые n количество секунд срабатывает рандомайзер для действий:
     if my_time > 1:
         my_time = 0
         for enem in enemies_group.sprites():
+            action = enem.brain()
             x, y = enem.pos
-            enem.move(x, y)
+            if action == 0:
+                if level_map[y - 1][x] == ".":
+                    enem.storona = 'u'
+                    enem.move(x, y - 1)
+            elif action == 1:
+                if level_map[y + 1][x] == ".":
+                    enem.storona = 'd'
+                    enem.move(x, y + 1)
+            elif action == 2:
+                if level_map[y][x - 1] == ".":
+                    enem.storona = 'l'
+                    enem.move(x - 1, y)
+            elif action == 3:
+                if level_map[y][x + 1] == ".":
+                    enem.storona = 'r'
+                    enem.move(x + 1, y)
+            elif action == 4:
+                enem.shoot(enem.storona)
 
     screen.fill(pygame.Color("black"))
     camera.update(player)
