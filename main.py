@@ -1,6 +1,7 @@
 import os
+import random
 import sys
-
+from time import time
 import pygame
 
 
@@ -72,17 +73,30 @@ def start_screen():
 
 class Tile(pygame.sprite.Sprite):
     def __init__(self, tile_type, pos_x, pos_y):
-        super().__init__(tiles_group)
+
+        # проверяем на "твердый ли" объект:
+        if tile_type != "wall":
+            super().__init__(tiles_group)
+        else:
+            super().__init__(solid_objects)
         self.image = tile_images[tile_type]
+        self.pos_x = pos_x
+        self.pos_y = pos_y
         self.rect = self.image.get_rect().move(
             tile_width * pos_x, tile_height * pos_y)
 
 
 class Bullet(pygame.sprite.Sprite):
-    def __init__(self, x, y, storona):
-        pygame.sprite.Sprite.__init__(self)
-        self.image = pygame.Surface((10, 20))
-        self.image.fill('yellow')
+    def __init__(self, x, y, storona, type):
+        if type == "player":
+            pygame.sprite.Sprite.__init__(self)
+            self.image = pygame.Surface((10, 20))
+            self.image.fill('yellow')
+        elif type == "enemy":
+            pygame.sprite.Sprite.__init__(self)
+            self.image = pygame.Surface((10, 20))
+            self.image.fill('red')
+
         self.rect = self.image.get_rect()
         self.rect.bottom = y
         self.rect.centerx = x
@@ -115,13 +129,64 @@ class Player(pygame.sprite.Sprite):
         level_map[self.pos[1]][self.pos[0]] = "."
         self.pos = (x, y)
         level_map[self.pos[1]][self.pos[0]] = "@"
+
+        # смещение спрайтов
         for sprite in tiles_group:
+            camera.apply(sprite)
+        for sprite in solid_objects:
+            camera.apply(sprite)
+        for sprite in enemies_group:
+            camera.apply(sprite)
+        for sprite in player_bullets:
+            camera.apply(sprite)
+        for sprite in enemy_bullets:
             camera.apply(sprite)
 
     def shoot(self, storona):
-        bullet = Bullet(self.rect.centerx, self.rect.top + 30, storona)
+        bullet = Bullet(self.rect.centerx, self.rect.top + 30, storona, "player")
         all_sprites.add(bullet)
-        bullets.add(bullet)
+        player_bullets.add(bullet)
+
+
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self, pos_x, pos_y):
+        super().__init__(enemies_group)
+        self.image = enemies_image
+        self.pos_x = pos_x
+        self.pos_y = pos_y
+        self.storona = "l"
+        self.rect = self.image.get_rect().move(
+            tile_width * self.pos_x + 15, tile_height * self.pos_y + 5)
+        self.pos = (self.pos_x, self.pos_y)
+        self.count = 0
+
+    def move(self, x, y):
+        level_map[self.pos[1]][self.pos[0]] = "."
+        self.pos_x = x
+        self.pos_y = y
+        storona = random.randint(0, 3)
+        if storona == 0:
+            if level_map[y][x + 1] == '.':
+                self.pos_x += 1
+        elif storona == 1:
+            if level_map[y][x - 1] == '.':
+                self.pos_x -= 1
+        elif storona == 2:
+            if level_map[y + 1][x] == '.':
+                self.pos_y += 1
+        elif storona == 3:
+            if level_map[y - 1][x] == '.':
+                self.pos_y -= 1
+        self.rect = self.image.get_rect().move(
+            tile_width * self.pos_x, tile_height * self.pos_y)
+        self.pos = (self.pos_x, self.pos_y)
+        level_map[self.pos[1]][self.pos[0]] = "&"
+
+    def shoot(self, storona):
+        bullet = Bullet(self.rect.centerx, self.rect.top + 30, storona, "enemy")
+        all_sprites.add(bullet)
+        enemy_bullets.add(bullet)
+
 
 
 class Camera:
@@ -145,6 +210,7 @@ def generate_level(level):
     new_player, x, y = None, None, None
     for y in range(len(level)):
         for x in range(len(level[y])):
+            # не знаю как оформить проверку на то, является ли объект твердым, пускай будет пока тут:
             if level[y][x] == '.':
                 Tile('empty', x, y)
             elif level[y][x] == '#':
@@ -152,6 +218,9 @@ def generate_level(level):
             elif level[y][x] == '@':
                 Tile('empty', x, y)
                 new_player = Player(x, y)
+            elif level[y][x] == "&":
+                Tile('empty', x, y)
+                new_enemy = Enemy(x, y)
     # вернем игрока, а также размер поля в клетках
     return new_player, x, y
 
@@ -171,25 +240,35 @@ def move(player, movement):
         if x < max_x and level_map[y][x + 1] == ".":
             player.move(x + 1, y)
 
-
 pygame.init()
 size = WIDTH, HEIGHT = (800, 800)
 pygame.display.set_caption("Марио")
 screen = pygame.display.set_mode(size)
 FPS = 50
 clock = pygame.time.Clock()
+my_time = 0
 
+# создание групп спрайтов:
 tiles_group = pygame.sprite.Group()
 player_group = pygame.sprite.Group()
-bullets = pygame.sprite.Group()
+player_bullets = pygame.sprite.Group()
+enemy_bullets = pygame.sprite.Group()
 all_sprites = pygame.sprite.Group()
+solid_objects = pygame.sprite.Group()
+enemies_group = pygame.sprite.Group()
 
+
+# список столкновений объектов разных групп спрайтов:
+
+collision_list = [(solid_objects, player_bullets, False, True), (enemies_group, player_bullets, True, True), (player_group, enemy_bullets, False, True)]
 
 tile_images = {
     'wall': load_image('box.png'),
-    'empty': load_image('grass2.png')
+    'empty': load_image('grass.png')
 }
+
 player_image = load_image('mario.png')
+enemies_image = load_image("enemy.png")
 
 tile_width = tile_height = 50
 
@@ -201,6 +280,7 @@ running = True
 storona = 'u'
 
 while running:
+    tic = time()
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -219,13 +299,40 @@ while running:
             elif event.key == pygame.K_d:
                 move(player, "right")
                 storona = 'r'
+
+    # каждые n количество секунд срабатывает рандомайзер для действий:
+    if my_time > 1:
+        my_time = 0
+        for enem in enemies_group.sprites():
+            x, y = enem.pos
+            enem.move(x, y)
+
     screen.fill(pygame.Color("black"))
     camera.update(player)
     tiles_group.draw(screen)
+    solid_objects.draw(screen)
     player_group.draw(screen)
-    all_sprites.draw(screen)
-    all_sprites.update()
+    enemies_group.draw(screen)
+
+    # собственно проверка на столкновение:
+    for test in collision_list:
+        hits = pygame.sprite.groupcollide(test[0], test[1], test[2], test[3])
+        if test[0] == enemies_group:
+            for hit in hits:
+                print(level_map[hit.pos_y][hit.pos_x])
+                level_map[hit.pos_y][hit.pos_x] = "."
+
+    player_bullets.draw(screen)
+    player_bullets.update()
+
+    enemy_bullets.draw(screen)
+    enemy_bullets.update()
+
     pygame.display.flip()
     clock.tick(FPS)
+
+    toc = time()
+    my_time += toc - tic
+
 pygame.display.quit()
 pygame.quit()
