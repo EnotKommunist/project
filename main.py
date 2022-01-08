@@ -85,13 +85,40 @@ class Bullet(pygame.sprite.Sprite):
             self.rect.x += self.speedy
 
 
+class AnimatedSprite(pygame.sprite.Sprite):
+    def __init__(self, sheet, columns, rows, x, y, n_frames=1):
+        super().__init__(animation_group)
+        self.frames = []
+        self.cut_sheet(sheet, columns, rows)
+        self.cur_frame = 0
+        self.image = self.frames[self.cur_frame]
+        self.rect = self.rect.move(x, y)
+        self.n_frames = n_frames
+
+    def cut_sheet(self, sheet, columns, rows):
+        self.rect = pygame.Rect(0, 0, sheet.get_width() // columns,
+                                sheet.get_height() // rows)
+        for j in range(rows):
+            for i in range(columns):
+                frame_location = (self.rect.w * i, self.rect.h * j)
+                self.frames.append(sheet.subsurface(pygame.Rect(
+                    frame_location, self.rect.size)))
+
+    def update(self):
+        self.cur_frame = (self.cur_frame + 1) % (len(self.frames) * self.n_frames)
+        self.image = self.frames[self.cur_frame // self.n_frames]
+
+
+
 class Player(pygame.sprite.Sprite):
     def __init__(self, pos_x, pos_y):
         super().__init__(player_group)
         self.image = player_image
         self.rect = self.image.get_rect().move(
-            tile_width * pos_x + 15, tile_height * pos_y + 5)
+            tile_width * pos_x, tile_height * pos_y)
         self.pos = (pos_x, pos_y)
+        self.razn_x = 0
+        self.razn_y = 0
 
     def move(self, x, y):
         camera.dx -= tile_width * (x - self.pos[0])
@@ -117,6 +144,9 @@ class Player(pygame.sprite.Sprite):
         all_sprites.add(bullet)
         player_bullets.add(bullet)
 
+    def update_image(self, name_image):
+        AnimatedSprite(load_image(name_image), 10, 1, (player.pos[0] - self.razn_x) * 50, (player.pos[1] - self.razn_y) * 50, 5)
+
 
 class Enemy(pygame.sprite.Sprite):
     def __init__(self, pos_x, pos_y):
@@ -126,21 +156,31 @@ class Enemy(pygame.sprite.Sprite):
         self.pos_y = pos_y
         self.storona = "l"
         self.rect = self.image.get_rect().move(
-            tile_width * self.pos_x, tile_height * self.pos_y)
+            tile_width * self.pos_x + 15, tile_height * self.pos_y + 5)
         self.pos = (self.pos_x, self.pos_y)
+        self.count = 0
 
     def move(self, x, y):
         level_map[self.pos[1]][self.pos[0]] = "."
         self.pos_x = x
         self.pos_y = y
+        storona = random.randint(0, 3)
+        if storona == 0:
+            if level_map[y][x + 1] == '.':
+                self.pos_x += 1
+        elif storona == 1:
+            if level_map[y][x - 1] == '.':
+                self.pos_x -= 1
+        elif storona == 2:
+            if level_map[y + 1][x] == '.':
+                self.pos_y += 1
+        elif storona == 3:
+            if level_map[y - 1][x] == '.':
+                self.pos_y -= 1
         self.rect = self.image.get_rect().move(
             tile_width * self.pos_x, tile_height * self.pos_y)
         self.pos = (self.pos_x, self.pos_y)
         level_map[self.pos[1]][self.pos[0]] = "&"
-
-    def brain(self):
-        action = random.randint(0, 4)
-        return action
 
     def shoot(self, storona):
         bullet = Bullet(self.rect.centerx, self.rect.top + 30, storona, "enemy")
@@ -164,6 +204,8 @@ class Camera:
     def update(self, target):
         self.dx = 0
         self.dy = 0
+
+
 
 
 def generate_level(level):
@@ -190,15 +232,20 @@ def move(player, movement):
     if movement == "up":
         if y > 0 and level_map[y - 1][x] == ".":
             player.move(x, y - 1)
+            player.razn_y -= 1
     elif movement == "down":
         if y < max_y and level_map[y + 1][x] == ".":
             player.move(x, y + 1)
+            player.razn_y += 1
     elif movement == "left":
         if x > 0 and level_map[y][x - 1] == ".":
             player.move(x - 1, y)
+            player.razn_x -= 1
     elif movement == "right":
         if x < max_x and level_map[y][x + 1] == ".":
             player.move(x + 1, y)
+            player.razn_x += 1
+
 
 pygame.init()
 size = WIDTH, HEIGHT = (800, 800)
@@ -208,7 +255,6 @@ FPS = 50
 clock = pygame.time.Clock()
 my_time = 0
 
-# создание групп спрайтов:
 tiles_group = pygame.sprite.Group()
 player_group = pygame.sprite.Group()
 player_bullets = pygame.sprite.Group()
@@ -216,9 +262,7 @@ enemy_bullets = pygame.sprite.Group()
 all_sprites = pygame.sprite.Group()
 solid_objects = pygame.sprite.Group()
 enemies_group = pygame.sprite.Group()
-
-
-# список столкновений объектов разных групп спрайтов:
+animation_group = pygame.sprite.Group()
 
 collision_list = [(solid_objects, player_bullets, False, True), (enemies_group, player_bullets, True, True), (player_group, enemy_bullets, False, True)]
 
@@ -227,7 +271,7 @@ tile_images = {
     'empty': load_image('grass.png')
 }
 
-player_image = load_image('mario.png')
+player_image = load_image('r.png')
 enemies_image = load_image("enemy.png")
 
 tile_width = tile_height = 50
@@ -235,6 +279,7 @@ tile_width = tile_height = 50
 camera = Camera()
 level_map = load_level("map.map")
 player, max_x, max_y = generate_level(level_map)
+AnimatedSprite(load_image("m_r.png"), 10, 1, 350, 200, 5)
 running = True
 storona = 'u'
 
@@ -245,44 +290,34 @@ while running:
             running = False
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
-                player.shoot(storona_d)
+                player.shoot(storona)
             if event.key == pygame.K_w:
                 move(player, "up")
-                storona_d = 'u'
+                animation_group = pygame.sprite.Group()
+                player.update_image('m_u.png')
+                storona = 'u'
             elif event.key == pygame.K_s:
                 move(player, "down")
-                storona_d = 'd'
+                animation_group = pygame.sprite.Group()
+                player.update_image('m_d.png')
+                storona = 'd'
             elif event.key == pygame.K_a:
                 move(player, "left")
-                storona_d = 'l'
+                animation_group = pygame.sprite.Group()
+                player.update_image('m_l.png')
+                storona = 'l'
             elif event.key == pygame.K_d:
                 move(player, "right")
-                storona_d = 'r'
+                animation_group = pygame.sprite.Group()
+                player.update_image('m_r.png')
+                storona = 'r'
 
     # каждые n количество секунд срабатывает рандомайзер для действий:
     if my_time > 1:
         my_time = 0
         for enem in enemies_group.sprites():
-            action = enem.brain()
             x, y = enem.pos
-            if action == 0:
-                if level_map[y - 1][x] == ".":
-                    enem.storona = 'u'
-                    enem.move(x, y - 1)
-            elif action == 1:
-                if level_map[y + 1][x] == ".":
-                    enem.storona = 'd'
-                    enem.move(x, y + 1)
-            elif action == 2:
-                if level_map[y][x - 1] == ".":
-                    enem.storona = 'l'
-                    enem.move(x - 1, y)
-            elif action == 3:
-                if level_map[y][x + 1] == ".":
-                    enem.storona = 'r'
-                    enem.move(x + 1, y)
-            elif action == 4:
-                enem.shoot(enem.storona)
+            enem.move(x, y)
 
     screen.fill(pygame.Color("black"))
     camera.update(player)
@@ -304,6 +339,9 @@ while running:
 
     enemy_bullets.draw(screen)
     enemy_bullets.update()
+
+    animation_group.draw(screen)
+    animation_group.update()
 
     pygame.display.flip()
     clock.tick(FPS)
