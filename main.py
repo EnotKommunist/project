@@ -57,6 +57,35 @@ class Tile(pygame.sprite.Sprite):
             tile_width * pos_x, tile_height * pos_y)
 
 
+class Bullet2(pygame.sprite.Sprite):
+    def __init__(self, pos_x, pos_y):
+        pygame.sprite.Sprite.__init__(self)
+        super().__init__(enemy_bullets)
+        self.pos = [pos_x, pos_y]
+        mx, my = player.pos[0] * 50, player.pos[1] * 50
+        self.dir = (mx - pos_x, my - pos_y)
+        length = math.hypot(*self.dir)
+        if length == 0.0:
+            self.dir = (0, -1)
+        else:
+            self.dir = (self.dir[0] / length, self.dir[1] / length)
+        angle = math.degrees(math.atan2(-self.dir[1], self.dir[0]))
+
+        self.image = pygame.Surface((10, 10)).convert_alpha()
+        self.image.fill((255, 255, 0))
+        self.speed = 3
+        self.rect = self.image.get_rect(center=self.pos)
+
+    def update(self):
+        self.pos = [self.pos[0]+self.dir[0]*self.speed,
+                    self.pos[1]+self.dir[1]*self.speed]
+
+    def draw(self, surf):
+        self.rect = self.image.get_rect(center=self.pos)
+        screen.blit(self.image, self.rect)
+
+
+
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, x, y, q, q2):
         pygame.sprite.Sprite.__init__(self)
@@ -173,7 +202,7 @@ class Enemy(pygame.sprite.Sprite):
         self.pos_y = pos_y
         self.storona = "l"
         self.rect = self.image.get_rect().move(
-            tile_width * self.pos_x + 15, tile_height * self.pos_y + 5)
+            tile_width * self.pos_x, tile_height * self.pos_y)
         self.pos = (self.pos_x, self.pos_y)
         self.count = 0
 
@@ -199,10 +228,14 @@ class Enemy(pygame.sprite.Sprite):
         self.pos = (self.pos_x, self.pos_y)
         level_map[self.pos[1]][self.pos[0]] = "&"
 
-    def shoot(self, storona):
-        bullet = Bullet(self.rect.centerx, self.rect.top + 30, storona, "enemy")
+    def shoot(self):
+        bullet = Bullet2(self.rect.centerx, self.rect.top + 30)
         all_sprites.add(bullet)
         enemy_bullets.add(bullet)
+
+    def brain(self):
+        action = random.randint(0, 3)
+        return action
 
 
 class Camera:
@@ -252,18 +285,26 @@ def move(player, movement):
         if y > 0 and level_map[y - 1][x] == ".":
             player.move(x, y - 1)
             player.razn_y -= 1
+            for b in enemy_bullets:
+                b.pos[1] += 50
     elif movement == "down":
         if y < max_y and level_map[y + 1][x] == ".":
             player.move(x, y + 1)
             player.razn_y += 1
+            for b in enemy_bullets:
+                b.pos[1] -= 50
     elif movement == "left":
         if x > 0 and level_map[y][x - 1] == ".":
             player.move(x - 1, y)
             player.razn_x -= 1
+            for b in enemy_bullets:
+                b.pos[0] += 50
     elif movement == "right":
         if x < max_x and level_map[y][x + 1] == ".":
             player.move(x + 1, y)
             player.razn_x += 1
+            for b in enemy_bullets:
+                b.pos[0] -= 50
 
 
 pygame.init()
@@ -340,6 +381,7 @@ def get_anim_file(storona):
         player.update_image('m_r.png')
 
 
+
 while running:
     tic = time()
     for event in pygame.event.get():
@@ -376,28 +418,50 @@ while running:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_w:
                 move(player, "up")
+
                 animation_group = pygame.sprite.Group()
                 get_anim_file(Storona)
             elif event.key == pygame.K_s:
                 move(player, "down")
+
                 animation_group = pygame.sprite.Group()
                 get_anim_file(Storona)
             elif event.key == pygame.K_a:
                 move(player, "left")
+
                 animation_group = pygame.sprite.Group()
                 get_anim_file(Storona)
             elif event.key == pygame.K_d:
                 move(player, "right")
+
                 animation_group = pygame.sprite.Group()
                 get_anim_file(Storona)
 
-
     # каждые n количество секунд срабатывает рандомайзер для действий:
+
     if my_time > 1:
         my_time = 0
         for enem in enemies_group.sprites():
+            action = enem.brain()
             x, y = enem.pos
-            enem.move(x, y)
+            if action == 0:
+                if level_map[y - 1][x] == ".":
+                    enem.storona = 0
+                    enem.move(x, y - 1)
+            elif action == 1:
+                if level_map[y + 1][x] == ".":
+                    enem.storona = 1
+                    enem.move(x, y + 1)
+            elif action == 2:
+                if level_map[y][x - 1] == ".":
+                    enem.storona = 2
+                    enem.move(x - 1, y)
+            elif action == 3:
+                if level_map[y][x + 1] == ".":
+                    enem.storona = 3
+                    enem.move(x + 1, y)
+            enem.shoot()
+
 
 
     # собственно проверка на столкновение, надо вынести в отдельную функцию нрн:
@@ -422,6 +486,13 @@ while running:
         bullet.update()
         if not screen.get_rect().collidepoint(bullet.pos):
             player_bullets.remove(bullet)
+
+    for bullet in enemy_bullets:
+        bullet.draw(screen)
+    for bullet in enemy_bullets:
+        bullet.update()
+        if not screen.get_rect().collidepoint(bullet.pos):
+            enemy_bullets.remove(bullet)
 
     # пример статуса игрока HP:
     for status in status_list:
