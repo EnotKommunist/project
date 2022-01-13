@@ -3,6 +3,7 @@ import random
 import sys
 from time import time
 import pygame
+import math
 
 
 def load_image(name, color_key=-1):
@@ -57,32 +58,31 @@ class Tile(pygame.sprite.Sprite):
 
 
 class Bullet(pygame.sprite.Sprite):
-    def __init__(self, x, y, storona, type):
-        if type == "player":
-            pygame.sprite.Sprite.__init__(self)
-            self.image = pygame.Surface((10, 20))
-            self.image.fill('yellow')
-        elif type == "enemy":
-            pygame.sprite.Sprite.__init__(self)
-            self.image = pygame.Surface((10, 20))
-            self.image.fill('red')
+    def __init__(self, x, y, q, q2):
+        pygame.sprite.Sprite.__init__(self)
+        super().__init__(player_bullets)
+        self.pos = [x, y]
+        mx, my = pygame.mouse.get_pos()
+        self.dir = (mx - x, my - y)
+        length = math.hypot(*self.dir)
+        if length == 0.0:
+            self.dir = (0, -1)
+        else:
+            self.dir = (self.dir[0]/length, self.dir[1]/length)
+        angle = math.degrees(math.atan2(-self.dir[1], self.dir[0]))
 
-        self.rect = self.image.get_rect()
-        self.rect.bottom = y
-        self.rect.centerx = x
-        self.speedy = -10
-        self.storona = storona
+        self.image = pygame.Surface((10, 10)).convert_alpha()
+        self.image.fill((255, 0, 0))
+        self.speed = 5
+        self.rect = self.image.get_rect(center=self.pos)
 
     def update(self):
-        #self.rect.y += self.speedy
-        if self.storona == 'u':
-            self.rect.y += self.speedy
-        if self.storona == 'd':
-            self.rect.y -= self.speedy
-        if self.storona == 'r':
-            self.rect.x -= self.speedy
-        if self.storona == 'l':
-            self.rect.x += self.speedy
+        self.pos = [self.pos[0]+self.dir[0]*self.speed,
+                    self.pos[1]+self.dir[1]*self.speed]
+
+    def draw(self, surf):
+        self.rect = self.image.get_rect(center=self.pos)
+        screen.blit(self.image, self.rect)
 
 
 class AnimatedSprite(pygame.sprite.Sprite):
@@ -107,7 +107,6 @@ class AnimatedSprite(pygame.sprite.Sprite):
     def update(self):
         self.cur_frame = (self.cur_frame + 1) % (len(self.frames) * self.n_frames)
         self.image = self.frames[self.cur_frame // self.n_frames]
-
 
 
 class Player(pygame.sprite.Sprite):
@@ -141,11 +140,29 @@ class Player(pygame.sprite.Sprite):
 
     def shoot(self, storona):
         bullet = Bullet(self.rect.centerx, self.rect.top + 30, storona, "player")
-        all_sprites.add(bullet)
         player_bullets.add(bullet)
+        all_sprites.add(bullet)
 
     def update_image(self, name_image):
         AnimatedSprite(load_image(name_image), 10, 1, (player.pos[0] - self.razn_x) * 50, (player.pos[1] - self.razn_y) * 50, 5)
+
+
+class Status:
+    def __init__(self, x, y, img=None, x2=10, y2=10,  color="green"):
+        self.pos = (x, y)
+        self.long = (x2, y2)
+
+        if img != None:
+            self.image = load_image("heart.png")
+        else:
+            self.image = pygame.Surface((x2, y2)).convert_alpha()
+            self.image.fill(pygame.Color(color))
+        self.speed = 2
+        self.rect = self.image.get_rect(center=self.pos)
+
+    def draw(self, surf):
+        self.rect = self.image.get_rect(center=self.pos)
+        surf.blit(self.image, self.rect)
 
 
 class Enemy(pygame.sprite.Sprite):
@@ -188,7 +205,6 @@ class Enemy(pygame.sprite.Sprite):
         enemy_bullets.add(bullet)
 
 
-
 class Camera:
     # зададим начальный сдвиг камеры
     def __init__(self):
@@ -197,15 +213,18 @@ class Camera:
 
     # сдвинуть объект obj на смещение камеры
     def apply(self, obj):
-        obj.rect.x += self.dx
-        obj.rect.y += self.dy
+        # т.к класс пуль по итогу немного отличается, приходится осуществлять проверку:
+        if not isinstance(obj, (Bullet)):
+            obj.rect.x += self.dx
+            obj.rect.y += self.dy
+        else:
+            obj.pos[0] += self.dx
+            obj.pos[1] += self.dy
 
     # позиционировать камеру на объекте target
     def update(self, target):
         self.dx = 0
         self.dy = 0
-
-
 
 
 def generate_level(level):
@@ -254,6 +273,31 @@ screen = pygame.display.set_mode(size)
 FPS = 50
 clock = pygame.time.Clock()
 my_time = 0
+f1 = pygame.font.Font(None, 36)
+
+# хп игрока нужно внести в класс:
+player_HP = 5
+max_player_HP = 10
+
+# список статусов:
+status_list = []
+
+# сердечко:
+my_heart = Status(10, 10, "heart.png")
+
+# Рамка:
+heart_ram = Status(125, 10, None, 200, 20,  "white")
+heart_ram_1 = Status(125, 10, None, 198, 18,  "black")
+
+# полоска жизней:
+realy_heart_line = Status(125, 10, None, 198, 18,  "green")
+
+status_list.append(my_heart)
+status_list.append(heart_ram)
+status_list.append(heart_ram_1)
+status_list.append(realy_heart_line)
+text1 = f1.render(f'{player_HP}/{max_player_HP}', True, (180, 0, 0))
+
 
 tiles_group = pygame.sprite.Group()
 player_group = pygame.sprite.Group()
@@ -281,36 +325,72 @@ level_map = load_level("map.map")
 player, max_x, max_y = generate_level(level_map)
 AnimatedSprite(load_image("m_r.png"), 10, 1, 350, 200, 5)
 running = True
-storona = 'u'
+screen.blit(text1, (10, 50))
+Storona = 'u'
+
+
+def get_anim_file(storona):
+    if storona == "u":
+        player.update_image('m_u.png')
+    elif storona == "d":
+        player.update_image('m_d.png')
+    elif storona == "l":
+        player.update_image('m_l.png')
+    elif storona == "r":
+        player.update_image('m_r.png')
+
 
 while running:
     tic = time()
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            player.shoot(Storona)
+        if event.type == pygame.MOUSEMOTION:
+            x, y = pygame.mouse.get_pos()
+
+            if x < player.pos[0] * 50 and y < player.pos[1] * 50:
+                if x > y:
+                    Storona = "u"
+                elif x < y:
+                    Storona = "l"
+            elif x > player.pos[0] * 50 and y < player.pos[1] * 50:
+                if x > y:
+                    Storona = "r"
+                elif x < y:
+                    Storona = "u"
+            elif x < player.pos[0] * 50 and y > player.pos[1] * 50:
+                if x > y:
+                    Storona = "d"
+                elif x < y:
+                    Storona = "l"
+            elif x > player.pos[0] * 50 and y > player.pos[1] * 50:
+                if x > y:
+                    Storona = "r"
+                elif x < y:
+                    Storona = "d"
+
+
+            get_anim_file(Storona)
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
-                player.shoot(storona)
             if event.key == pygame.K_w:
                 move(player, "up")
                 animation_group = pygame.sprite.Group()
-                player.update_image('m_u.png')
-                storona = 'u'
+                get_anim_file(Storona)
             elif event.key == pygame.K_s:
                 move(player, "down")
                 animation_group = pygame.sprite.Group()
-                player.update_image('m_d.png')
-                storona = 'd'
+                get_anim_file(Storona)
             elif event.key == pygame.K_a:
                 move(player, "left")
                 animation_group = pygame.sprite.Group()
-                player.update_image('m_l.png')
-                storona = 'l'
+                get_anim_file(Storona)
             elif event.key == pygame.K_d:
                 move(player, "right")
                 animation_group = pygame.sprite.Group()
-                player.update_image('m_r.png')
-                storona = 'r'
+                get_anim_file(Storona)
+
 
     # каждые n количество секунд срабатывает рандомайзер для действий:
     if my_time > 1:
@@ -319,14 +399,8 @@ while running:
             x, y = enem.pos
             enem.move(x, y)
 
-    screen.fill(pygame.Color("black"))
-    camera.update(player)
-    tiles_group.draw(screen)
-    solid_objects.draw(screen)
-    player_group.draw(screen)
-    enemies_group.draw(screen)
 
-    # собственно проверка на столкновение:
+    # собственно проверка на столкновение, надо вынести в отдельную функцию нрн:
     for test in collision_list:
         hits = pygame.sprite.groupcollide(test[0], test[1], test[2], test[3])
         if test[0] == enemies_group:
@@ -334,15 +408,28 @@ while running:
                 print(level_map[hit.pos_y][hit.pos_x])
                 level_map[hit.pos_y][hit.pos_x] = "."
 
-    player_bullets.draw(screen)
-    player_bullets.update()
-
+    screen.fill(pygame.Color("black"))
+    camera.update(player)
+    tiles_group.draw(screen)
+    solid_objects.draw(screen)
+    player_group.draw(screen)
+    enemies_group.draw(screen)
     enemy_bullets.draw(screen)
-    enemy_bullets.update()
+    player_bullets.draw(screen)
+    for bullet in player_bullets:
+        bullet.draw(screen)
+    for bullet in player_bullets:
+        bullet.update()
+        if not screen.get_rect().collidepoint(bullet.pos):
+            player_bullets.remove(bullet)
+
+    # пример статуса игрока HP:
+    for status in status_list:
+        status.draw(screen)
+    screen.blit(text1, (100, 0))
 
     animation_group.draw(screen)
     animation_group.update()
-
     pygame.display.flip()
     clock.tick(FPS)
 
