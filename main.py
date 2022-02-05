@@ -350,8 +350,6 @@ def move(object, movement):
     if not isinstance(object, (Player)):
         #print(movement)
         pass
-    print(object.pos)
-    print(x, y)
     if movement == "up":
         if y > 0 and level_map[y - 1][x] == ".":
             object.move(x, y - 1)
@@ -379,6 +377,7 @@ pygame.display.set_caption("Soul Night")
 screen = pygame.display.set_mode(size)
 clock = pygame.time.Clock()
 my_time = 0
+next_time = 0
 inventory_view = False
 
 
@@ -718,8 +717,6 @@ while running:
                         Item("inventory", hit.pos[0], hit.pos[1], hit.inventory_icon, hit.inventory_pos)
                         basic_item_group.remove(hit)
                     break
-
-    # каждые n количество секунд срабатывает рандомайзер для действий:
     if my_time > 0.01:
         mana_time += 0.01
         enemy_bullet_time += 0.01
@@ -745,7 +742,6 @@ while running:
                     if bullet_count > 0:
                         enem.shoot()
         my_time = 0
-
     screen.fill(pygame.Color("black"))
     camera.update(player)
     tiles_group.draw(screen)
@@ -817,6 +813,7 @@ while running:
 
     toc = time()
     my_time += toc - tic
+    next_time += toc - tic
 
 pygame.display.quit()
 pygame.quit()
