@@ -39,6 +39,9 @@ def load_level(filename):
     return list(map(lambda x: list(x.ljust(max_width, '.')), level_map))
 
 
+level_map = load_level("map.map")
+
+
 def terminate():
     pygame.quit()
     sys.exit()
@@ -68,6 +71,8 @@ class Item(pygame.sprite.Sprite):
             super().__init__(basic_item_group)
         self.text = Text(x + Basic_item_text_x - (len(ITEMS[inventory_icon][2]) + 11) * 3, y + Basic_item_text_y, f"[E] Взять: {ITEMS[inventory_icon][2]}")
         self.pos = [x, y]
+        self.pos_x = x
+        self.pos_y = y
         self.image = load_image(f"{ITEMS[inventory_icon][0]}")
         self.rect = self.image.get_rect(topleft=self.pos)
         self.inventory_icon = inventory_icon
@@ -96,18 +101,24 @@ class Text:
         self.color = color
         f1 = pygame.font.Font(None, 25)
         self.text = f1.render(f'{text}', True, self.color)
-        self.x, self.y = x, y
+        self.pos_x = x
+        self.pos_y = y
 
     def draw(self, surf):
-        surf.blit(self.text, (self.x, self.y))
+        surf.blit(self.text, (self.pos_x, self.pos_y))
 
 
 class Bullet(pygame.sprite.Sprite):
-    def __init__(self, x, y, q, q2):
+    def __init__(self, x, y, type, speed, color=(255, 255, 255)):
         pygame.sprite.Sprite.__init__(self)
-        super().__init__(player_bullets)
         self.pos = [x, y]
-        mx, my = pygame.mouse.get_pos()
+        if type == "player":
+            super().__init__(player_bullets)
+            mx, my = pygame.mouse.get_pos()
+        elif type == "enemy":
+            super().__init__(enemy_bullets)
+            mx, my = player.rect.centerx + random.randint(-30, 30), player.rect.top + 30 + random.randint(-30, 30)
+        self.color = color
         self.dir = (mx - x, my - y)
         length = math.hypot(*self.dir)
         if length == 0.0:
@@ -117,8 +128,8 @@ class Bullet(pygame.sprite.Sprite):
         angle = math.degrees(math.atan2(-self.dir[1], self.dir[0]))
 
         self.image = pygame.Surface((10, 10)).convert_alpha()
-        self.image.fill((255, 0, 0))
-        self.speed = 5
+        self.image.fill(color)
+        self.speed = speed
         self.rect = self.image.get_rect(center=self.pos)
 
     def update(self):
@@ -167,6 +178,7 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect().move(
             tile_width * pos_x, tile_height * pos_y)
         self.pos = (pos_x, pos_y)
+        self.start_pos = (pos_x, pos_y)
         self.razn_x = 0
         self.razn_y = 0
         self.inventory_list = inventory
@@ -178,12 +190,16 @@ class Player(pygame.sprite.Sprite):
         self.pos = (x, y)
         level_map[self.pos[1]][self.pos[0]] = "@"
 
+        camera.x += camera.dx
+        camera.y += camera.dy
+
         # смещение спрайтов
         for sprite in tiles_group:
             camera.apply(sprite)
         for sprite in solid_objects:
             camera.apply(sprite)
         for sprite in enemies_group:
+            sprite.type = "player_move"
             camera.apply(sprite)
         for sprite in player_bullets:
             camera.apply(sprite)
@@ -192,11 +208,12 @@ class Player(pygame.sprite.Sprite):
         for sprite in basic_item_group:
             camera.apply(sprite)
 
-
     def shoot(self, storona):
-        bullet = Bullet(self.rect.centerx, self.rect.top + 30, storona, "player")
-        player_bullets.add(bullet)
-        all_sprites.add(bullet)
+        if self.mana > 3:
+            self.mana -= 4
+            bullet = Bullet(self.rect.centerx, self.rect.top + 30, "player", 7, (255, 0, 0))
+            player_bullets.add(bullet)
+            all_sprites.add(bullet)
 
     def update_image(self, name_image):
         AnimatedSprite(load_image(name_image), 10, 1, (player.pos[0] - self.razn_x) * 50, (player.pos[1] - self.razn_y) * 50, 5)
@@ -224,14 +241,6 @@ class Status:
         surf.blit(self.image, self.rect)
 
 
-class Sprite_Mouse_Location(pygame.sprite.Sprite):
-    def __init__(self):
-        pygame.sprite.Sprite.__init__(self)
-        super().__init__(mouse_group)
-        self.image = load_image("mouse.png")
-        self.rect = pygame.Rect(0, 0, 1, 1)
-
-
 class Enemy(pygame.sprite.Sprite):
     def __init__(self, pos_x, pos_y):
         super().__init__(enemies_group)
@@ -240,34 +249,40 @@ class Enemy(pygame.sprite.Sprite):
         self.pos_y = pos_y
         self.storona = "l"
         self.rect = self.image.get_rect().move(
-            tile_width * self.pos_x + 15, tile_height * self.pos_y + 5)
-        self.pos = (self.pos_x, self.pos_y)
-        self.count = 0
+            tile_width * self.pos_x, tile_height * self.pos_y)
+        self.pos = [self.pos_x, self.pos_y]
+        self.razn_x = 0
+        self.razn_y = 0
+        self.type = 0
+        self.camera_pos = [self.pos[0], self.pos[1]]
+
+    def brain(self):
+        storona = random.randint(0, 3)
+        if storona == 0:
+            storona = "right"
+        elif storona == 1:
+            storona = "left"
+        elif storona == 2:
+            storona = "down"
+        elif storona == 3:
+            storona = "up"
+        return storona
 
     def move(self, x, y):
         level_map[self.pos[1]][self.pos[0]] = "."
+        #print(level_map[self.pos[1]][self.pos[0]])
+        x2, y2 = self.rect.x, self.rect.y
+        enem_pos = (self.pos[0] - x, self.pos[1] - y)
         self.pos_x = x
         self.pos_y = y
-        storona = random.randint(0, 3)
-        if storona == 0:
-            if level_map[y][x + 1] == '.':
-                self.pos_x += 1
-        elif storona == 1:
-            if level_map[y][x - 1] == '.':
-                self.pos_x -= 1
-        elif storona == 2:
-            if level_map[y + 1][x] == '.':
-                self.pos_y += 1
-        elif storona == 3:
-            if level_map[y - 1][x] == '.':
-                self.pos_y -= 1
-        self.rect = self.image.get_rect().move(
-            tile_width * self.pos_x, tile_height * self.pos_y)
-        self.pos = (self.pos_x, self.pos_y)
+        self.rect = self.image.get_rect().move(self.rect.x + enem_pos[0] * 50, self.rect.y + enem_pos[1] * 50)
+        self.pos = [self.pos_x, self.pos_y]
+        #print(level_map[self.pos[1]][self.pos[0]])
         level_map[self.pos[1]][self.pos[0]] = "&"
+        #print(level_map[self.pos[1]][self.pos[0]])
 
-    def shoot(self, storona):
-        bullet = Bullet(self.rect.centerx, self.rect.top + 30, storona, "enemy")
+    def shoot(self):
+        bullet = Bullet(self.rect.centerx, self.rect.top + 30, "enemy", 5, (255, 255, 0))
         all_sprites.add(bullet)
         enemy_bullets.add(bullet)
 
@@ -277,21 +292,38 @@ class Camera:
     def __init__(self):
         self.dx = 0
         self.dy = 0
+        self.x = 0
+        self.y = 0
 
     # сдвинуть объект obj на смещение камеры
     def apply(self, obj):
-        # т.к класс пуль по итогу немного отличается, приходится осуществлять проверку:
-        if not isinstance(obj, (Bullet)):
-            obj.rect.x += self.dx
-            obj.rect.y += self.dy
-        else:
+        # т.к класс пуль и врагов по итогу немного отличается, приходится осуществлять проверку:
+        if isinstance(obj, (Bullet)):
             obj.pos[0] += self.dx
             obj.pos[1] += self.dy
+        #elif isinstance(obj, (Enemy)):
+        #    if obj.type == "enemy_move":
+        #        obj.rect.x += self.x
+        #        obj.rect.y += self.y
+        #    elif obj.type == "player_move":
+        #        obj.rect.x += self.dx
+        #        obj.rect.y += self.dy
+        else:
+            obj.rect.x += self.dx
+            obj.rect.y += self.dy
 
     # позиционировать камеру на объекте target
     def update(self, target):
         self.dx = 0
         self.dy = 0
+
+
+class Sprite_Mouse_Location(pygame.sprite.Sprite):
+    def __init__(self):
+        pygame.sprite.Sprite.__init__(self)
+        super().__init__(mouse_group)
+        self.image = load_image("mouse.png")
+        self.rect = pygame.Rect(0, 0, 1, 1)
 
 
 def generate_level(level):
@@ -313,24 +345,33 @@ def generate_level(level):
     return new_player, x, y
 
 
-def move(player, movement):
-    x, y = player.pos
+def move(object, movement):
+    x, y = object.pos
+    if not isinstance(object, (Player)):
+        #print(movement)
+        pass
+    print(object.pos)
+    print(x, y)
     if movement == "up":
         if y > 0 and level_map[y - 1][x] == ".":
-            player.move(x, y - 1)
-            player.razn_y -= 1
+            object.move(x, y - 1)
+            if isinstance(object, (Player)):
+                object.razn_y -= 1
     elif movement == "down":
         if y < max_y and level_map[y + 1][x] == ".":
-            player.move(x, y + 1)
-            player.razn_y += 1
+            object.move(x, y + 1)
+            if isinstance(object, (Player)):
+                object.razn_y += 1
     elif movement == "left":
         if x > 0 and level_map[y][x - 1] == ".":
-            player.move(x - 1, y)
-            player.razn_x -= 1
+            object.move(x - 1, y)
+            if isinstance(object, (Player)):
+                object.razn_x -= 1
     elif movement == "right":
         if x < max_x and level_map[y][x + 1] == ".":
-            player.move(x + 1, y)
-            player.razn_x += 1
+            object.move(x + 1, y)
+            if isinstance(object, (Player)):
+                object.razn_x += 1
 
 
 pygame.init()
@@ -339,6 +380,77 @@ screen = pygame.display.set_mode(size)
 clock = pygame.time.Clock()
 my_time = 0
 inventory_view = False
+
+
+def start_screen():
+    global level_map
+    fon = pygame.transform.scale(load_image('fon3.jpg'), (WIDTH, HEIGHT))
+    screen.blit(fon, (0, 0))
+    font = pygame.font.Font(None, 30)
+    text_coord = 50
+    cube1_x, cube1_y = 200, 100
+    cube2_x, cube2_y = 200, 300
+    cube3_x, cube3_y = 200, 500
+    line_x = cube1_x + 200
+    line_y = cube1_y + 1
+    line2_x = cube2_x + 200
+    line2_y = cube2_y + 1
+    line2_x = cube2_x + 200
+    line2_y = cube2_y + 1
+    line2_x = cube2_x + 200
+    line2_y = cube2_y + 1
+    line3_x = cube3_x + 200
+    line3_y = cube3_y + 1
+    line1 = 400
+    line2 = 100
+    last_x, last_y = 0, 0
+    x, y = 0, 0
+
+    cube = pygame.draw.polygon(screen, (0, 0, 0),
+                               ((cube1_x, cube1_y), (cube1_x, line_y), (line_x, line_y), (line_x, cube1_y)))
+    pygame.draw.polygon(screen, (0, 180, 0),
+                        ((cube.x, cube.y), (cube.x, cube.y + line2), (cube.x + line1, cube.y + line2),
+                         (cube.x + line1, cube.y)))
+    cube_2 = pygame.draw.polygon(screen, (0, 0, 0),
+                                 ((cube2_x, cube2_y), (cube2_x, line2_y), (line2_x, line2_y), (line2_x, cube2_y)))
+    pygame.draw.polygon(screen, (180, 180, 0),
+                        ((cube_2.x, cube_2.y), (cube_2.x, cube_2.y + line2), (cube_2.x + line1, cube_2.y + line2),
+                         (cube_2.x + line1, cube_2.y)))
+    cube_3 = pygame.draw.polygon(screen, (0, 0, 0),
+                                 ((cube3_x, cube3_y), (cube3_x, line3_y), (line3_x, line3_y), (line3_x, cube3_y)))
+    pygame.draw.polygon(screen, (180, 0, 0),
+                        ((cube_3.x, cube_3.y), (cube_3.x, cube_3.y + line2), (cube_3.x + line1, cube_3.y + line2),
+                         (cube_3.x + line1, cube_3.y)))
+
+    f1 = pygame.font.Font(None, 36)
+    text = f1.render(f'Легкий', True, (255, 255, 255))
+    text_2 = f1.render(f'Нормальный', True, (255, 255, 255))
+    text_3 = f1.render(f'Сложный', True, (255, 255, 255))
+
+    screen.blit(text, (cube1_x + 150, cube1_y + 50))
+    screen.blit(text_2, (cube2_x + 125, cube2_y + 50))
+    screen.blit(text_3, (cube3_x + 140, cube3_y + 50))
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                terminate()
+            elif event.type == pygame.KEYDOWN or \
+                    event.type == pygame.MOUSEBUTTONDOWN:
+                x, y = pygame.mouse.get_pos()
+                if x >= cube.x and x <= cube.x + line1 and y >= cube.y and y <= cube.y + line2:
+                    level_map = load_level("map.map")
+                    return
+                elif x >= cube_2.x and x <= cube_2.x + line1 and y >= cube_2.y and y <= cube_2.y + line2:
+                    level_map = load_level("map2.map")
+                    return
+                elif x >= cube_3.x and x <= cube_3.x + line1 and y >= cube_3.y and y <= cube_3.y + line2:
+                    level_map = load_level("map3.map")
+                    return
+        pygame.display.flip()
+        clock.tick(FPS)
+
+start_screen()
 
 # список статусов:
 status_list = []
@@ -357,7 +469,7 @@ basic_item_group = pygame.sprite.Group()
 mouse_group = pygame.sprite.Group()
 
 collision_list = [(solid_objects, player_bullets, False, True), (enemies_group, player_bullets, True, True), (player_group, enemy_bullets, False, True),
-                  (basic_item_group, player_group, False, False)]
+                  (basic_item_group, player_group, False, False), (solid_objects, enemy_bullets, False, True)]
 
 tile_images = {
     'wall': load_image('box.png'),
@@ -365,12 +477,12 @@ tile_images = {
 }
 
 player_image = load_image('r.png')
-enemies_image = load_image("enemy.png")
+enemies_image = load_image("turel.png")
 
 tile_width = tile_height = 50
 
 camera = Camera()
-level_map = load_level("map.map")
+#level_map = load_level("map.map")
 player, max_x, max_y = generate_level(level_map)
 
 AnimatedSprite(load_image("m_r.png"), 10, 1, 350, 200, 5)
@@ -412,7 +524,14 @@ def dist(p1, p2=(move_item.pos[0] + ITEMS[move_item.inventory_icon][1][0], move_
 
 inventory_item_group.remove(move_item)
 move_item = None
+move_item_start_pos = [0, 0]
 # за счет этой конструкции функция думает, что move_item - объект класса:
+
+#счётчики игровых событий:
+mana_time = 0
+enemy_bullet_time = 0
+ememy_bullet_reload = 0
+bullet_count = 0
 
 
 def get_anim_file(storona):
@@ -459,6 +578,7 @@ def get_inventory_coords(type, coords, inventory=INVENTORY):
     x2 = x2 / 2 * INVENTORY_CELL
     y2 = y2 / 2 * INVENTORY_CELL
     x, y = x - x2, y - y2
+
     for i in range(len(inventory)):
         if type == "coords" and inventory[i] == "#":
             return (x, y), i
@@ -486,6 +606,7 @@ while running:
                 hits = pygame.sprite.groupcollide(inventory_item_group, mouse_group, False, False)
                 for hit in hits:
                     move_item = hit
+                    move_item_start_pos = hit.pos
                     player.inventory_list[move_item.inventory_pos] = "#"
                     break
 
@@ -498,13 +619,22 @@ while running:
                 if coords:
                     # если переносим в инвентарь, то предмет перенесется к ближайшей ячейке:
                     res = min(coords, key=dist)
-                    player.inventory_list[move_item.inventory_pos] = "#"
-                    move_item.pos = (res[0] + ITEMS[move_item.inventory_icon][1][0], res[1] + ITEMS[move_item.inventory_icon][1][1])
+
+                    if player.inventory_list[get_inventory_coords("count", (res[0],res[1]), player.inventory_list)] == "#":
+                        player.inventory_list[move_item.inventory_pos] = "#"
+                        move_item.pos = (
+                        res[0] + ITEMS[move_item.inventory_icon][1][0], res[1] + ITEMS[move_item.inventory_icon][1][1])
+                    else:
+                        move_item.pos = move_item_start_pos
+
                     move_item.inventory_pos = get_inventory_coords("count",
-                                                               (move_item.pos[0] - ITEMS[move_item.inventory_icon][1][0],
-                                                                move_item.pos[1] - ITEMS[move_item.inventory_icon][1][1]),
-                                                               player.inventory_list)
+                                                                   (move_item.pos[0] -
+                                                                    ITEMS[move_item.inventory_icon][1][0],
+                                                                    move_item.pos[1] -
+                                                                    ITEMS[move_item.inventory_icon][1][1]),
+                                                                   player.inventory_list)
                     player.inventory_list[move_item.inventory_pos] = move_item.inventory_icon
+
                 else:
                     # иначе выбрасывает предмет себе под ноги:
                     player.inventory_list[move_item.inventory_pos] = "#"
@@ -527,22 +657,22 @@ while running:
 
             # поворот модельки героя к мыши:
             x2, y2 = (player.pos[0] - player.razn_x) * 50, (player.pos[1] - player.razn_y) * 50
-            if x < x2 * 50 and y < player.pos[1] * 50:
+            if x < player.start_pos[0] * 50 and y < player.start_pos[1] * 50:
                 if x > y:
                     Storona = "u"
                 elif x < y:
                     Storona = "l"
-            elif x > x2 * 50 and y < player.pos[1] * 50:
+            elif x > player.start_pos[0] * 50 and y < player.start_pos[1] * 50:
                 if x > y:
                     Storona = "r"
                 elif x < y:
                     Storona = "u"
-            elif x < x2 * 50 and y > player.pos[1] * 50:
+            elif x < player.start_pos[0] * 50 and y > player.start_pos[1] * 50:
                 if x > y:
                     Storona = "d"
                 elif x < y:
                     Storona = "l"
-            elif x > x2 * 50 and y > player.pos[1] * 50:
+            elif x > player.start_pos[0] * 50 and y > player.start_pos[1] * 50:
                 if x > y:
                     Storona = "r"
                 elif x < y:
@@ -589,16 +719,32 @@ while running:
                         basic_item_group.remove(hit)
                     break
 
-
     # каждые n количество секунд срабатывает рандомайзер для действий:
-    if my_time > 1:
-        if player.mana > 0:
-            player.mana -= 1
+    if my_time > 0.01:
+        mana_time += 0.01
+        enemy_bullet_time += 0.01
 
+        if mana_time > 0.25:
+            mana_time = 0
+            if player.mana < player.max_mana:
+                player.mana += 1
+
+        # 0.1
+        if enemy_bullet_time > 0.1:
+            enemy_bullet_time = 0
+            if bullet_count > 0:
+                bullet_count -= 1
+            if ememy_bullet_reload <= 10 and bullet_count <= 0:
+                ememy_bullet_reload += 1
+            if ememy_bullet_reload >= 10 and bullet_count <= 0:
+                ememy_bullet_reload = 0
+                bullet_count = 1 + random.randint(1, 4)
+
+            for enem in enemies_group.sprites():
+                if screen.get_rect().collidepoint(enem.rect.x, enem.rect.y):
+                    if bullet_count > 0:
+                        enem.shoot()
         my_time = 0
-        for enem in enemies_group.sprites():
-            x, y = enem.pos
-            enem.move(x, y)
 
     screen.fill(pygame.Color("black"))
     camera.update(player)
@@ -608,11 +754,16 @@ while running:
     enemies_group.draw(screen)
     enemy_bullets.draw(screen)
     player_bullets.draw(screen)
-
     mouse_group.draw(screen)
+
     for bullet in player_bullets:
         bullet.draw(screen)
     for bullet in player_bullets:
+        bullet.update()
+
+    for bullet in enemy_bullets:
+        bullet.draw(screen)
+    for bullet in enemy_bullets:
         bullet.update()
 
     basic_item_group.draw(screen)
@@ -638,19 +789,26 @@ while running:
     update_status_bar(player, realy_shield_line, player.armor, player.max_armor)
     update_status_bar(player, realy_mana_line, player.mana, player.max_mana)
 
-
     # собственно проверка на столкновение, надо вынести в отдельную функцию нрн:
     for test in collision_list:
         hits = pygame.sprite.groupcollide(test[0], test[1], test[2], test[3])
         if test[0] == enemies_group:
             for hit in hits:
+                pass
                 level_map[hit.pos_y][hit.pos_x] = "."
         if test[0] == basic_item_group:
             hit_list = []
             for hit in hits:
                 hit.text.draw(screen)
+        if test[0] == player_group and test[1] == enemy_bullets:
+            for hit in hits:
+                if player.armor > 0:
+                    player.armor -= 1
+                elif player.hp > 0:
+                    player.hp -= 1
 
-
+    if player.hp == 0:
+        running = False
 
     animation_group.draw(screen)
     animation_group.update()
